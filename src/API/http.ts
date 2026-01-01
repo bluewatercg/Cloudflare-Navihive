@@ -130,6 +130,18 @@ export class NavigationAPI {
   // 初始化数据库表
   // 修改initDB方法，将SQL语句分开执行
   async initDB(): Promise<{ success: boolean; alreadyInitialized: boolean }> {
+    // 尝试自动修复缺失的字段 (即使已初始化也尝试执行，以修复旧版本数据库)
+    try {
+      await this.db.exec('ALTER TABLE groups ADD COLUMN is_public INTEGER DEFAULT 1;');
+    } catch {}
+    try {
+      await this.db.exec('ALTER TABLE sites ADD COLUMN is_public INTEGER DEFAULT 1;');
+    } catch {}
+    try {
+      await this.db.exec('CREATE INDEX IF NOT EXISTS idx_groups_is_public ON groups(is_public);');
+      await this.db.exec('CREATE INDEX IF NOT EXISTS idx_sites_is_public ON sites(is_public);');
+    } catch {}
+
     // 首先检查数据库是否已初始化
     try {
       const isInitialized = await this.getConfig('DB_INITIALIZED');
@@ -142,12 +154,12 @@ export class NavigationAPI {
 
     // 先创建groups表
     await this.db.exec(
-      `CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, order_num INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`
+      `CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, order_num INTEGER NOT NULL, is_public INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`
     );
 
     // 再创建sites表
     await this.db.exec(
-      `CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL, icon TEXT, description TEXT, notes TEXT, order_num INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE);`
+      `CREATE TABLE IF NOT EXISTS sites (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL, icon TEXT, description TEXT, notes TEXT, order_num INTEGER NOT NULL, is_public INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE);`
     );
 
     // 创建全局配置表
@@ -406,7 +418,10 @@ export class NavigationAPI {
     )} WHERE id = ? RETURNING id, name, order_num, created_at, updated_at`;
     params.push(id);
 
-    const result = await this.db.prepare(query).bind(...params).all<Group>();
+    const result = await this.db
+      .prepare(query)
+      .bind(...params)
+      .all<Group>();
 
     if (!result.results || result.results.length === 0) {
       return null;
@@ -527,7 +542,6 @@ export class NavigationAPI {
     return Array.from(groupsMap.values());
   }
 
-
   async getSite(id: number): Promise<Site | null> {
     const result = await this.db
       .prepare(
@@ -607,7 +621,10 @@ export class NavigationAPI {
     )} WHERE id = ? RETURNING id, group_id, name, url, icon, description, notes, order_num, created_at, updated_at`;
     params.push(id);
 
-    const result = await this.db.prepare(query).bind(...params).all<Site>();
+    const result = await this.db
+      .prepare(query)
+      .bind(...params)
+      .all<Site>();
 
     if (!result.results || result.results.length === 0) {
       return null;
